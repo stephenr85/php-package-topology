@@ -46,9 +46,11 @@ function declaredVendorTree(array $packages): string
 function evaluateDeclared(string $vendorPath): array
 {
     $contract = (new DeclaredContractSource($vendorPath))->contract();
-    $store = RelationalDriverFactory::make(new ComposerManifestGraphSource($vendorPath, ['rushing/*', 'splicewire/*', 'schemastud/*']), 'declared');
+    // The kit's wiring: every package a declared rule NAMES is in scope, whatever the globs say.
+    $source = new ComposerManifestGraphSource($vendorPath, ['rushing/*', 'splicewire/*', 'schemastud/*'], named: $contract->packagesNamed());
+    $store = RelationalDriverFactory::make($source, 'declared');
 
-    return (new TopologyEvaluator)->evaluate($contract, $store, $vendorPath);
+    return (new TopologyEvaluator)->evaluate($contract, $store, $vendorPath, $source);
 }
 
 test('a declared mustRequire that holds passes, and its absence is caught', function () {
@@ -175,4 +177,42 @@ test('a declared sourceNeverImports is assembled as its own kind', function () {
     $kinds = array_map(fn ($r) => $r->kind, $contract->rules);
     expect($kinds)->toContain(RuleKind::SourceNeverImports)
         ->and($kinds)->not->toContain(RuleKind::SourceNeverReferences);
+});
+
+test('a declared mustRequire on a vendor outside the include globs is looked at, not failed by not looking', function () {
+    // gate-reachability 03: surgeon declares `mustRequire: nikic/php-parser` and its manifest DOES
+    // require it — but `nikic/*` matches no include glob, so the edge was never materialised and the
+    // rule failed at every host that ran the declared gate. Naming a package in a rule puts it in scope.
+    $ok = declaredVendorTree([
+        'rushing/laravel-surgeon' => [
+            'require' => ['nikic/php-parser' => '^5.0'],
+            'topology' => ['mustRequire' => ['nikic/php-parser']],
+        ],
+        'nikic/php-parser' => [],
+    ]);
+    expect(evaluateDeclared($ok))->toBe([]);
+
+    // The precision half: a named out-of-glob target is genuinely checked, so a declaration the
+    // manifest does NOT honour is still a real required_direct_edge finding — not a vacuous pass.
+    $bad = declaredVendorTree([
+        'rushing/laravel-surgeon-lying' => [
+            'topology' => ['mustRequire' => ['nikic/php-parser']],
+        ],
+        'nikic/php-parser' => [],
+    ]);
+    $violations = evaluateDeclared($bad);
+    expect($violations)->not->toBe([])
+        ->and($violations[0]->kind)->toBe(RuleKind::RequiredDirectEdge)
+        ->and($violations[0]->message())->toContain('nikic/php-parser');
+
+    // A named target with no installed manifest is a phantom, exactly as an in-glob one: the require
+    // edge is kept (mustRequire holds) and mustBeInstalled is what reports the absence.
+    $phantom = declaredVendorTree([
+        'rushing/laravel-surgeon-phantom' => [
+            'require' => ['nikic/php-parser-ghost' => '*'],
+            'topology' => ['mustRequire' => ['nikic/php-parser-ghost'], 'mustBeInstalled' => ['nikic/php-parser-ghost']],
+        ],
+    ]);
+    $violations = evaluateDeclared($phantom);
+    expect(array_map(fn ($v) => $v->kind, $violations))->toBe([RuleKind::MustBeInstalled]);
 });

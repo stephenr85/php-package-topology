@@ -73,6 +73,22 @@ Override `includeGlobs()` to scope which vendors the require-graph loads — it 
 `['rushing/*', 'splicewire/*']` and **is load-bearing**: unscoped it would ingest all of `vendor/`,
 exploding the reachability queries. Keep it tight.
 
+### Scope: a rule about a package the source cannot see
+
+The globs bound the **compute**; the contract bounds the **question**. So every package a rule NAMES is
+admitted regardless of the globs — the kit passes `TopologyContract::packagesNamed()` to the source's
+`named:` argument, which is why `mustRequire('rushing/laravel-surgeon', 'nikic/php-parser')` is answerable
+without widening to all of `vendor/`. The edge exists because a manifest declares it; before this the
+target matched no glob, the edge was never materialised, and the rule failed at every host that ran it.
+
+The precision half rides with it. Hand-build a source with a narrower scope and the evaluator can now tell
+*"nothing there"* from *"didn't look"*: pass the source as `evaluate()`'s fourth argument (any
+`PackageScope`) and a rule whose operands are out of scope is recorded as an `UnresolvedRule` —
+`unresolved()` carries them, `didNotLook()` counts them — instead of being scored. That matters because
+non-observation is not neutral: `mustRequire` reads it as a FAIL while `mustNotRequire` and `neverReaches`
+read the very same silence as a PASS. Omit the argument and the evaluator keeps its scope-blind behaviour
+and reports `didNotLook() === 0`, meaning *not measured* rather than *all resolved*.
+
 For a host with no base-class constraint, extend `PackageTopologyConformance` instead of using the trait —
 it ships a ready `test_topology_holds()` off the same two seams.
 

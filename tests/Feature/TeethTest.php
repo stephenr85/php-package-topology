@@ -191,3 +191,56 @@ test('sourceNeverImports catches a use import and ignores an inline fully-qualif
         ->build();
     expect(evaluate($inlineImports, $vendorPath))->toBe([]);
 });
+
+// --- scope: "nothing there" vs "didn't look" (gate-reachability 03) ---------
+
+test('a rule naming a package the source cannot see is reported unresolvable, never as a pass or a fail', function () {
+    $vendorPath = teethFixture('vendor-fixture/clean');
+    // A source scoped to `splicewire/*` only: `rushing/lib` is installed and required by kernel, but the
+    // source never looks at it. Without a scope the evaluator cannot tell "not there" from "not looked".
+    $source = new ComposerManifestGraphSource($vendorPath, ['splicewire/*']);
+    $store = RelationalDriverFactory::make($source, 'teeth-scope');
+
+    $contract = TopologyContract::for('out-of-scope')
+        ->mustRequire('splicewire/kernel', 'rushing/lib')       // true on disk; the graph cannot see it
+        ->mustNotRequire('splicewire/kernel', 'rushing/lib')    // false on disk; would pass vacuously
+        ->neverReaches('splicewire/engine-a', 'rushing/lib')    // false on disk; would pass vacuously
+        ->mustBeInstalled('rushing/lib')                        // true on disk; would fail by not looking
+        ->mustRequire('splicewire/engine-a', 'splicewire/kernel') // in scope, holds
+        ->build();
+
+    $evaluator = new TopologyEvaluator;
+    expect($evaluator->evaluate($contract, $store, $vendorPath, $source))->toBe([])
+        ->and($evaluator->didNotLook())->toBe(4)
+        ->and($evaluator->unresolved()[0]->rule->kind)->toBe(RuleKind::RequiredDirectEdge)
+        ->and($evaluator->unresolved()[0]->message())->toContain('rushing/lib')
+        ->and($evaluator->unresolved()[0]->message())->toContain('did not look');
+
+    // Naming the package puts it in scope: the same contract is now fully resolved and the two
+    // false claims fail on their merits.
+    $named = new ComposerManifestGraphSource($vendorPath, ['splicewire/*'], named: $contract->packagesNamed());
+    expect($named->sees('rushing/lib'))->toBeTrue()
+        ->and($source->sees('rushing/lib'))->toBeFalse();
+    $store = RelationalDriverFactory::make($named, 'teeth-scope-named');
+    $violations = $evaluator->evaluate($contract, $store, $vendorPath, $named);
+    expect($evaluator->didNotLook())->toBe(0)
+        ->and(array_map(fn ($v) => $v->kind, $violations))->toBe([RuleKind::ForbiddenDirectEdge, RuleKind::ForbiddenReachable]);
+
+    // Without a scope the evaluator keeps its old reading — it has nothing to distinguish with.
+    $store = RelationalDriverFactory::make($source, 'teeth-scope-none');
+    expect($evaluator->evaluate($contract, $store, $vendorPath))->not->toBe([])
+        ->and($evaluator->didNotLook())->toBe(0);
+});
+
+test('packagesNamed lists every package a graph-axis rule references and no namespace prefix', function () {
+    $contract = TopologyContract::for('names')
+        ->mustRequire('a/one', 'b/two')
+        ->downOnly('c/three', from: ['d/four', 'a/one'])
+        ->layerOrder(['e/five', 'b/two'])
+        ->mustBeInstalled('f/six')
+        ->mustBeAcyclic()
+        ->sourceNeverReferences('a/one', prefixes: ['Vendor\\Upper\\'])
+        ->build();
+
+    expect($contract->packagesNamed())->toBe(['a/one', 'b/two', 'c/three', 'd/four', 'e/five', 'f/six']);
+});

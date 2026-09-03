@@ -6,6 +6,8 @@ use Rushing\Graphine\Contracts\GraphSource;
 use Rushing\Graphine\Dto\Edge;
 use Rushing\Graphine\Dto\Node;
 use Rushing\Graphine\Dto\NodeId;
+use Rushing\PackageTopology\Contract\PackageScope;
+use Rushing\PackageTopology\Contract\TopologyContract;
 
 /**
  * THE PACKAGE-GRAPH SOURCE — a graphine {@see GraphSource} over installed
@@ -23,6 +25,15 @@ use Rushing\Graphine\Dto\NodeId;
  * (~dozens of nodes → trivial `shortestPath`/`detectCycles`). Widening the scope
  * widens the compute — keep it tight.
  *
+ * NAMED PACKAGES ARE IN SCOPE WHATEVER THE GLOBS SAY. `$named` (in practice
+ * {@see TopologyContract::packagesNamed()}) admits the exact packages a contract
+ * asks about, and nothing else — bounded by the declarations, not by `vendor/`.
+ * A `mustRequire('rushing/laravel-surgeon', 'nikic/php-parser')` is a claim ABOUT
+ * a manifest that declares the edge, so the edge exists; before this the target
+ * matched no glob, the edge was never materialised, and the rule failed at every
+ * host that ran it — a rule reporting FAILURE by not looking. Reach before
+ * precision: what the instrument can SEE is worth more than what it decides.
+ *
  * PHANTOM ENDPOINTS. A `require` target that is in-scope-by-glob but has no
  * installed manifest is emitted as a Node with `properties['installed'] => false`,
  * and its edge is KEPT (a deliberate divergence from the drop-endpoint behaviour
@@ -32,7 +43,7 @@ use Rushing\Graphine\Dto\NodeId;
  * Pure filesystem: it reads `vendor/{vendor}/{name}/composer.json`, no DB, no
  * Splicewire vocabulary. Spine-only — it declares no governance gates.
  */
-class ComposerManifestGraphSource implements GraphSource
+class ComposerManifestGraphSource implements GraphSource, PackageScope
 {
     /** @var array<string,array<string,mixed>>|null memoised name => manifest for installed in-scope packages */
     private ?array $manifests = null;
@@ -41,12 +52,27 @@ class ComposerManifestGraphSource implements GraphSource
      * @param  string  $vendorPath  the composer `vendor/` directory (e.g. base_path('vendor'))
      * @param  list<string>  $include  vendor/name globs — the LOAD-BEARING scope
      * @param  list<string>  $requireKeys  manifest keys to read edges from (opt in 'require-dev')
+     * @param  list<string>  $named  exact package names admitted regardless of the globs —
+     *                               pass {@see TopologyContract::packagesNamed()}
      */
     public function __construct(
         private string $vendorPath,
         private array $include = ['rushing/*', 'splicewire/*'],
         private array $requireKeys = ['require'],
+        private array $named = [],
     ) {}
+
+    /**
+     * {@inheritDoc}
+     *
+     * A package is SEEN when a glob matches it or a contract named it — whether or
+     * not it turns out to be installed (an unseen package yields no node and no
+     * edge; an in-scope uninstalled one yields a phantom, which is a finding).
+     */
+    public function sees(string $name): bool
+    {
+        return $this->inScope($name);
+    }
 
     /** @return iterable<Node> */
     public function nodes(): iterable
@@ -115,6 +141,23 @@ class ComposerManifestGraphSource implements GraphSource
                 $found[$name] = $decoded;
             }
         }
+
+        // Named packages the globs never reached: read the one manifest each, by path.
+        foreach ($this->named as $name) {
+            if (isset($found[$name])) {
+                continue;
+            }
+            $file = "{$this->vendorPath}/{$name}/composer.json";
+            // A named package with no manifest is not an error — it is a PHANTOM,
+            // and phantomTargets()/mustBeInstalled are what report it.
+            if (! is_file($file)) {
+                continue;
+            }
+            $decoded = json_decode((string) file_get_contents($file), true);
+            if (is_array($decoded)) {
+                $found[$name] = $decoded;
+            }
+        }
         ksort($found);
 
         return $this->manifests = $found;
@@ -146,6 +189,10 @@ class ComposerManifestGraphSource implements GraphSource
 
     private function inScope(string $name): bool
     {
+        if (in_array($name, $this->named, true)) {
+            return true;
+        }
+
         foreach ($this->include as $glob) {
             if (fnmatch($glob, $name)) {
                 return true;

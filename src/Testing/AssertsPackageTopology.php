@@ -5,6 +5,7 @@ namespace Rushing\PackageTopology\Testing;
 use Rushing\Graphine\Drivers\RelationalDriverFactory;
 use Rushing\PackageTopology\Contract\TopologyContract;
 use Rushing\PackageTopology\Contract\TopologyViolation;
+use Rushing\PackageTopology\Contract\UnresolvedRule;
 use Rushing\PackageTopology\Evaluator\TopologyEvaluator;
 use Rushing\PackageTopology\Sources\ComposerManifestGraphSource;
 
@@ -53,18 +54,40 @@ trait AssertsPackageTopology
 
     protected function assertTopologyHolds(): void
     {
-        $source = new ComposerManifestGraphSource($this->vendorPath(), $this->includeGlobs());
+        $contract = $this->topologyContract();
+
+        // Every package the contract NAMES is admitted, whatever the globs say: the
+        // globs bound the compute, the declarations bound the question. Without this
+        // a rule about an out-of-glob package (a third-party `mustRequire`) is
+        // answered by a graph that never materialised the edge — a failure by not
+        // looking, which is the same defect as a pass by not running.
+        $source = new ComposerManifestGraphSource(
+            $this->vendorPath(),
+            $this->includeGlobs(),
+            named: $contract->packagesNamed(),
+        );
         $store = RelationalDriverFactory::make($source, 'package-topology');
 
-        $violations = (new TopologyEvaluator)->evaluate($this->topologyContract(), $store, $this->vendorPath());
+        $evaluator = new TopologyEvaluator;
+        $violations = $evaluator->evaluate($contract, $store, $this->vendorPath(), $source);
 
-        $this->assertSame([], $violations, $this->renderViolations($violations));
+        $this->assertSame([], $violations, $this->renderViolations($violations, $evaluator->unresolved()));
+
+        // Belt and braces: with `named:` above nothing SHOULD be unresolvable, so a
+        // non-zero count means a rule referenced something this wiring could not
+        // admit. Report it rather than scoring it either way.
+        $this->assertSame(
+            0,
+            $evaluator->didNotLook(),
+            $this->renderUnresolved($evaluator->unresolved()),
+        );
     }
 
     /**
      * @param  list<TopologyViolation>  $violations
+     * @param  list<UnresolvedRule>  $unresolved
      */
-    private function renderViolations(array $violations): string
+    private function renderViolations(array $violations, array $unresolved = []): string
     {
         if ($violations === []) {
             return '';
@@ -73,6 +96,22 @@ trait AssertsPackageTopology
         return "Package-topology contract violated:\n - ".implode("\n - ", array_map(
             static fn (TopologyViolation $v): string => $v->message(),
             $violations,
-        ));
+        )).$this->renderUnresolved($unresolved);
+    }
+
+    /**
+     * @param  list<UnresolvedRule>  $unresolved
+     */
+    private function renderUnresolved(array $unresolved): string
+    {
+        if ($unresolved === []) {
+            return '';
+        }
+
+        return "\n\n".count($unresolved).' rule(s) UNRESOLVABLE — the graph source cannot see their operands, '
+            ."so they were neither passed nor failed:\n - ".implode("\n - ", array_map(
+                static fn (UnresolvedRule $u): string => $u->message(),
+                $unresolved,
+            ));
     }
 }

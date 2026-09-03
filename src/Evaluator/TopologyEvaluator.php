@@ -10,10 +10,12 @@ use Rushing\Graphine\Dto\NodeId;
 use Rushing\Graphine\Dto\Path;
 use Rushing\Graphine\Enums\TraversalDirection;
 use Rushing\Graphine\Testing\SeamGuard;
+use Rushing\PackageTopology\Contract\PackageScope;
 use Rushing\PackageTopology\Contract\RuleKind;
 use Rushing\PackageTopology\Contract\TopologyContract;
 use Rushing\PackageTopology\Contract\TopologyRule;
 use Rushing\PackageTopology\Contract\TopologyViolation;
+use Rushing\PackageTopology\Contract\UnresolvedRule;
 
 /**
  * Evaluates a {@see TopologyContract} against a hydrated graphine store (the
@@ -32,23 +34,91 @@ use Rushing\PackageTopology\Contract\TopologyViolation;
  *   mustBeInstalled  → getNode(pkg)?->properties['installed'] === true
  *   sourceNeverReferences → (new SeamGuard(prefixes))->scan(vendor/{pkg}/src) === []
  *   sourceNeverImports    → (new SeamGuard(prefixes, importsOnly: true))->scan(vendor/{pkg}/src) === []
+ *
+ * UNRESOLVABLE IS A THIRD ANSWER. The package graph is allow-listed, so a rule
+ * naming a package the source cannot see is answered by a graph that never
+ * looked: `neighbours()` returns nothing, `shortestPath()` returns null, and
+ * every kind reads that as its own verdict — `mustRequire` FAILS, `mustNotRequire`
+ * and `neverReaches` PASS, all on the same non-observation. Given a
+ * {@see PackageScope}, such a rule is instead recorded as an
+ * {@see UnresolvedRule} and skipped: {@see self::unresolved()} carries them and
+ * {@see self::didNotLook()} counts them, so "did not look" can never be mistaken
+ * for "nothing there". Without a scope the evaluator keeps its old behaviour —
+ * it has nothing to distinguish with, and says so by counting zero.
  */
 class TopologyEvaluator
 {
+    /** @var list<UnresolvedRule> rules skipped by the last evaluate() — out of the source's scope */
+    private array $unresolved = [];
+
     /**
      * @param  string  $vendorPath  the vendor root, used to locate `vendor/{pkg}/src` for source rules
+     * @param  PackageScope|null  $scope  what the graph source can see; omit to keep the
+     *                                    scope-blind behaviour (nothing is unresolvable)
      * @return list<TopologyViolation>
      */
-    public function evaluate(TopologyContract $contract, GraphStore $store, string $vendorPath): array
+    public function evaluate(TopologyContract $contract, GraphStore $store, string $vendorPath, ?PackageScope $scope = null): array
     {
+        $this->unresolved = [];
         $violations = [];
+
         foreach ($contract->rules as $rule) {
+            $unseen = $this->unseen($rule, $scope);
+            if ($unseen !== []) {
+                $this->unresolved[] = new UnresolvedRule($rule, $unseen);
+
+                continue;
+            }
             foreach ($this->check($rule, $store, $vendorPath) as $violation) {
                 $violations[] = $violation;
             }
         }
 
         return $violations;
+    }
+
+    /**
+     * The rules the last {@see self::evaluate()} could not answer.
+     *
+     * @return list<UnresolvedRule>
+     */
+    public function unresolved(): array
+    {
+        return $this->unresolved;
+    }
+
+    /**
+     * How many rules the last {@see self::evaluate()} DID NOT LOOK AT. Zero with no
+     * scope supplied means "not measured", not "all resolved" — the counter exists
+     * so an instrument cannot report success (or failure) by not running.
+     */
+    public function didNotLook(): int
+    {
+        return count($this->unresolved);
+    }
+
+    /**
+     * The packages this rule asks the graph about that the source cannot see.
+     * A whole rule is unresolvable if ANY of its operands is unseen — a partial
+     * answer over a multi-target rule (`downOnly`, `layerOrder`) would be the same
+     * silent fold this exists to prevent.
+     *
+     * @return list<string>
+     */
+    private function unseen(TopologyRule $rule, ?PackageScope $scope): array
+    {
+        if ($scope === null) {
+            return [];
+        }
+
+        $unseen = [];
+        foreach ($rule->packagesReferenced() as $name) {
+            if (! $scope->sees($name)) {
+                $unseen[] = $name;
+            }
+        }
+
+        return $unseen;
     }
 
     /** @return list<TopologyViolation> */

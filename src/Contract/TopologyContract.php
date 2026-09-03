@@ -3,6 +3,7 @@
 namespace Rushing\PackageTopology\Contract;
 
 use Rushing\PackageTopology\Evaluator\TopologyEvaluator;
+use Rushing\PackageTopology\Sources\ComposerManifestGraphSource;
 use Rushing\PackageTopology\Testing\AssertsPackageTopology;
 
 /**
@@ -133,6 +134,37 @@ class TopologyContract
     public function sourceNeverImports(string $pkg, array $prefixes, ?string $because = null): self
     {
         return $this->withRule(new TopologyRule(RuleKind::SourceNeverImports, $pkg, null, $prefixes, $because));
+    }
+
+    /**
+     * Every package this contract NAMES on the package-graph axis, in first-
+     * appearance order.
+     *
+     * This is the REACH half of the out-of-scope repair: a graph source's
+     * allow-list is load-bearing for compute, but a package a rule names is one
+     * the consumer has already declared an interest in, so it belongs in scope by
+     * construction — the edge exists because a manifest declares it. Feed this to
+     * {@see ComposerManifestGraphSource}'s `named:` argument and a
+     * `mustRequire('rushing/laravel-surgeon', 'nikic/php-parser')` becomes
+     * answerable without widening the globs to all of `vendor/`.
+     *
+     * Off-graph kinds contribute nothing (see {@see TopologyRule::packagesReferenced()}),
+     * so a namespace prefix can never leak in here as if it were a package.
+     *
+     * @return list<string>
+     */
+    public function packagesNamed(): array
+    {
+        $names = [];
+        foreach ($this->rules as $rule) {
+            foreach ($rule->packagesReferenced() as $name) {
+                if (! in_array($name, $names, true)) {
+                    $names[] = $name;
+                }
+            }
+        }
+
+        return $names;
     }
 
     /** Terminal no-op — reads well at the end of a fluent chain. */
