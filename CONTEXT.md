@@ -61,9 +61,20 @@ AdjacencyListSource, which drops out-of-snapshot endpoints) — a missing packag
 `mustNotRequire`/`mustBeInstalled` still fire against it.
 
 **Allow-list (scope)**:
-The `include` globs (`['rushing/*','splicewire/*']` by default) the source is scoped to. **Load-bearing,
-not optional**: unscoped it would ingest all of `vendor/` (hundreds of transitive packages), exploding the
-reachability queries. Widening the scope widens the compute — keep it tight.
+The `include` globs (`['rushing/*','splicewire/*']` by default) the source is scoped to, **plus** the exact
+names passed as `named:` (the testing kit passes `TopologyContract::packagesNamed()`). **Load-bearing, not
+optional**: unscoped it would ingest all of `vendor/` (hundreds of transitive packages), exploding the
+reachability queries. The globs bound the *compute*; the declarations bound the *question*, so a rule about
+a package outside every glob (`mustRequire('rushing/laravel-surgeon','nikic/php-parser')`) is answerable
+without widening to all of `vendor/`. Widening the GLOBS still widens the compute — keep those tight.
+
+**Unresolvable rule**:
+A rule whose graph operands the source cannot see. `Evaluator\TopologyEvaluator::evaluate()` takes an
+optional `Contract\PackageScope` (the source implements it via `sees()`); a rule out of that scope becomes
+a `Contract\UnresolvedRule` — carried by `unresolved()`, counted by `didNotLook()` — rather than scored.
+Non-observation is not neutral: `mustRequire` reads the silence as a FAIL while `mustNotRequire` and
+`neverReaches` read the same silence as a PASS. With no scope passed, `didNotLook()` is 0 meaning **not
+measured**, not "all resolved".
 
 ## Testing kit
 
