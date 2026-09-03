@@ -31,6 +31,7 @@ use Rushing\PackageTopology\Contract\TopologyViolation;
  *   mustBeAcyclic    → detectCycles() === []
  *   mustBeInstalled  → getNode(pkg)?->properties['installed'] === true
  *   sourceNeverReferences → (new SeamGuard(prefixes))->scan(vendor/{pkg}/src) === []
+ *   sourceNeverImports    → (new SeamGuard(prefixes, importsOnly: true))->scan(vendor/{pkg}/src) === []
  */
 class TopologyEvaluator
 {
@@ -63,6 +64,7 @@ class TopologyEvaluator
             RuleKind::Acyclic => $this->acyclic($rule, $store),
             RuleKind::MustBeInstalled => $this->mustBeInstalled($rule, $store),
             RuleKind::SourceNeverReferences => $this->sourceNeverReferences($rule, $vendorPath),
+            RuleKind::SourceNeverImports => $this->sourceNeverReferences($rule, $vendorPath, importsOnly: true),
         };
     }
 
@@ -196,7 +198,7 @@ class TopologyEvaluator
     // --- source-import axis ---------------------------------------------------
 
     /** @return list<TopologyViolation> */
-    private function sourceNeverReferences(TopologyRule $rule, string $vendorPath): array
+    private function sourceNeverReferences(TopologyRule $rule, string $vendorPath, bool $importsOnly = false): array
     {
         $pkg = (string) $rule->subject;
         $srcPath = rtrim($vendorPath, '/')."/{$pkg}/src";
@@ -214,8 +216,9 @@ class TopologyEvaluator
         $prefixes = array_map(static fn (string $p): string => rtrim($p, '\\'), $rule->targets);
 
         $violations = [];
-        foreach ((new SeamGuard($prefixes))->scan($srcPath) as $offender) {
-            $violations[] = $this->violation($rule, "{$pkg} src references a forbidden namespace — {$offender}");
+        $verb = $importsOnly ? 'imports' : 'references';
+        foreach ((new SeamGuard($prefixes, importsOnly: $importsOnly))->scan($srcPath) as $offender) {
+            $violations[] = $this->violation($rule, "{$pkg} src {$verb} a forbidden namespace — {$offender}");
         }
 
         return $violations;

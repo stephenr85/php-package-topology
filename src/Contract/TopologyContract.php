@@ -121,6 +121,20 @@ class TopologyContract
         return $this->withRule(new TopologyRule(RuleKind::SourceNeverReferences, $pkg, null, $prefixes, $because));
     }
 
+    /**
+     * `$pkg`'s `src/` must `use`-import none of `$prefixes` — the PARSE-TIME half of
+     * {@see self::sourceNeverReferences}. An inline fully-qualified reference at a call
+     * site (`app(\Vendor\Upper\Service::class)`) passes; a `use Vendor\Upper\Enum;`
+     * fails. This is the rule for a tier seam that sanctions runtime, container-resolved
+     * lookups across it but forbids binding to the upper tier at parse time.
+     *
+     * @param  list<string>  $prefixes  forbidden namespace prefixes
+     */
+    public function sourceNeverImports(string $pkg, array $prefixes, ?string $because = null): self
+    {
+        return $this->withRule(new TopologyRule(RuleKind::SourceNeverImports, $pkg, null, $prefixes, $because));
+    }
+
     /** Terminal no-op — reads well at the end of a fluent chain. */
     public function build(): self
     {

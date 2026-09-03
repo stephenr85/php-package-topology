@@ -167,3 +167,27 @@ test('sourceNeverReferences skips gracefully when a package src/ is absent', fun
 
     expect(evaluate($contract, teethFixture('src-fixture')))->toBe([]);
 });
+
+test('sourceNeverImports catches a use import and ignores an inline fully-qualified reference', function () {
+    $vendorPath = teethFixture('src-fixture');
+
+    $leaky = TopologyContract::for('leaky-import')
+        ->sourceNeverImports('leaky', prefixes: ['Splicewire\\SomeEngine\\'], because: 'no parse-time coupling to the engine')
+        ->build();
+    $violations = evaluate($leaky, $vendorPath);
+    expect($violations)->not->toBe([])
+        ->and($violations[0]->kind)->toBe(RuleKind::SourceNeverImports)
+        ->and($violations[0]->message())->toContain('LeakySpine.php');
+
+    // The same inline-only source fails the REFERENCES rule and passes the IMPORTS rule —
+    // that gap is the whole reason the second kind exists.
+    $inlineReferences = TopologyContract::for('inline-references')
+        ->sourceNeverReferences('inline', prefixes: ['Splicewire\\SomeEngine\\'])
+        ->build();
+    expect(evaluate($inlineReferences, $vendorPath))->not->toBe([]);
+
+    $inlineImports = TopologyContract::for('inline-imports')
+        ->sourceNeverImports('inline', prefixes: ['Splicewire\\SomeEngine\\'])
+        ->build();
+    expect(evaluate($inlineImports, $vendorPath))->toBe([]);
+});

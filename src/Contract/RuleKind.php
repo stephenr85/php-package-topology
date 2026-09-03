@@ -12,7 +12,11 @@ use Rushing\PackageTopology\Sources\ComposerManifestGraphSource;
  *     {@see self::SourceNeverReferences}. Answered by the graphine spine hydrated
  *     from {@see ComposerManifestGraphSource}.
  *   - SOURCE-IMPORT axis (namespace references in a package's `src/`):
- *     {@see self::SourceNeverReferences}. Answered by graphine's AST `SeamGuard`.
+ *     {@see self::SourceNeverReferences} and {@see self::SourceNeverImports}. Answered by
+ *     graphine's AST `SeamGuard` — the first counts every reference (imports AND inline
+ *     fully-qualified names), the second only what binds at parse time (`use` / group-use),
+ *     so a runtime `app(\Vendor\Upper\Service::class)` lookup across a sanctioned seam
+ *     passes it while a `use Vendor\Upper\Enum;` does not.
  *
  * Direct-edge rules ({@see self::RequiredDirectEdge}/{@see self::ForbiddenDirectEdge})
  * are a *direct* `require` claim (one hop, `maxDepth: 1`). {@see self::RequiredDevDirectEdge}
@@ -34,10 +38,11 @@ enum RuleKind: string
     case Acyclic = 'acyclic';
     case MustBeInstalled = 'must_be_installed';
     case SourceNeverReferences = 'source_never_references';
+    case SourceNeverImports = 'source_never_imports';
 
     /** Is this rule checked on the source-import axis (SeamGuard) rather than the package graph? */
     public function isSourceAxis(): bool
     {
-        return $this === self::SourceNeverReferences;
+        return $this === self::SourceNeverReferences || $this === self::SourceNeverImports;
     }
 }

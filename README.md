@@ -20,7 +20,7 @@ tree.**
 | Axis | What it reads | Rules |
 |------|---------------|-------|
 | **Package-graph** | `vendor/{pkg}/composer.json` `require` keys, as a graphine graph | `mustRequire` / `mustNotRequire` (direct edge), `mustRequireDev` (DEV-only edge, asserted off-graph against `require-dev`), `neverReaches` / `downOnly` / `layerOrder` (transitive, via `shortestPath`), `mustBeAcyclic` (`detectCycles`), `mustBeInstalled` (phantom node) |
-| **Source-import** | a package's `src/` (parsed AST) | `sourceNeverReferences` — delegates to graphine's `SeamGuard`, stronger than a substring scan (ignores strings/comments) |
+| **Source-import** | a package's `src/` (parsed AST) | `sourceNeverReferences` — delegates to graphine's `SeamGuard`, stronger than a substring scan (ignores strings/comments); `sourceNeverImports` — the parse-time half only (`use` / group-use), so a sanctioned runtime `app(\Upper\Service::class)` passes and a `use Upper\Enum;` fails |
 
 ## Install
 
@@ -105,7 +105,7 @@ The rule keys are the builder-method names verbatim (subject = the declaring pac
 ```
 
 Also supported: `neverReaches`, `downOnly` (the from-list), `mustBeInstalled`, `sourceNeverReferences`
-(prefixes). `mustBeAcyclic` is always appended. Consume it with the trait / base:
+(prefixes), `sourceNeverImports` (prefixes; parse-time `use` only). `mustBeAcyclic` is always appended. Consume it with the trait / base:
 
 ```php
 final class DeclaredTopologyTest extends \Tests\TestCase
@@ -134,6 +134,7 @@ participates in the vendor-seam rules). `DeclaredTopologyConformance` is the bas
 | `mustBeAcyclic()` | the in-scope require graph is a DAG | `detectCycles() === []` |
 | `mustBeInstalled($pkg)` | `$pkg` has an installed manifest | node `properties['installed'] === true` |
 | `sourceNeverReferences($pkg, prefixes: […])` | `$pkg`'s `src/` references none of the prefixes | `SeamGuard($prefixes)->scan(vendor/{pkg}/src) === []` |
+| `sourceNeverImports($pkg, prefixes: […])` | `$pkg`'s `src/` `use`-imports none of the prefixes (inline FQN at a call site is allowed) | `SeamGuard($prefixes, importsOnly: true)->scan(vendor/{pkg}/src) === []` |
 
 A **phantom node** — a required target with no installed manifest — is emitted with `installed => false` and
 its edge is *kept*, so `mustNotRequire` and `mustBeInstalled` still fire against a missing package (a missing

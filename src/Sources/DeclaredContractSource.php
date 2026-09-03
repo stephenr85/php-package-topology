@@ -32,7 +32,8 @@ use Rushing\PackageTopology\Contract\TopologyContract;
  *           "neverReaches": ["some/upper-tier"],          // self neverReaches X
  *           "downOnly":     ["splicewire/laravel-composition-engine"], // self depends DOWN only, from [...]
  *           "mustBeInstalled": ["some/required-peer"],    // X must be installed
- *           "sourceNeverReferences": ["Splicewire\\Circuits\\Execution\\"] // self src never references prefixes
+ *           "sourceNeverReferences": ["Splicewire\\Circuits\\Execution\\"], // self src never references prefixes (imports OR inline FQN)
+ *           "sourceNeverImports": ["Splicewire\\Tower\\"]              // self src never `use`-imports prefixes (inline runtime FQN allowed)
  *       }
  *   }
  *
@@ -106,6 +107,10 @@ class DeclaredContractSource
             $prefixes = $this->stringList($decl['sourceNeverReferences'] ?? null);
             if ($prefixes !== []) {
                 $contract = $contract->sourceNeverReferences($self, $prefixes, $because);
+            }
+            $importPrefixes = $this->stringList($decl['sourceNeverImports'] ?? null);
+            if ($importPrefixes !== []) {
+                $contract = $contract->sourceNeverImports($self, $importPrefixes, $because);
             }
 
             // Estate-wide policy fragment (owner-agnostic; merged from wherever declared).

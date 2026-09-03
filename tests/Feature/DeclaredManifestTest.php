@@ -162,3 +162,17 @@ test('a declared sourceNeverReferences is assembled (and skips gracefully with n
     $kinds = array_map(fn ($r) => $r->kind, $contract->rules);
     expect($kinds)->toContain(RuleKind::SourceNeverReferences);
 });
+
+test('a declared sourceNeverImports is assembled as its own kind', function () {
+    $tree = declaredVendorTree([
+        'splicewire/laravel-satellite-thing' => [
+            'topology' => ['sourceNeverImports' => ['Splicewire\\Tower\\']],
+        ],
+    ]);
+    expect(evaluateDeclared($tree))->toBe([]);
+
+    $contract = (new DeclaredContractSource($tree))->contract();
+    $kinds = array_map(fn ($r) => $r->kind, $contract->rules);
+    expect($kinds)->toContain(RuleKind::SourceNeverImports)
+        ->and($kinds)->not->toContain(RuleKind::SourceNeverReferences);
+});

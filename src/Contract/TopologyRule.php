@@ -14,14 +14,14 @@ use Rushing\PackageTopology\Evaluator\TopologyEvaluator;
  *   - `downOnly` uses {@see $subject} (the package) + {@see $targets} (the from-list
  *     it must never depend UP on).
  *   - `layerOrder` uses {@see $targets} (layers, lowest→highest).
- *   - `sourceNeverReferences` uses {@see $subject} (the package) + {@see $targets}
- *     (the forbidden namespace prefixes).
+ *   - `sourceNeverReferences` / `sourceNeverImports` use {@see $subject} (the package)
+ *     + {@see $targets} (the forbidden namespace prefixes).
  *   - `mustBeInstalled` uses {@see $subject}; `mustBeAcyclic` uses none.
  */
 class TopologyRule
 {
     /**
-     * @param  list<string>  $targets  from-list (downOnly), layers (layerOrder), or prefixes (sourceNeverReferences)
+     * @param  list<string>  $targets  from-list (downOnly), layers (layerOrder), or prefixes (sourceNeverReferences / sourceNeverImports)
      */
     public function __construct(
         public RuleKind $kind,
