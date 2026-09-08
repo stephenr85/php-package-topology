@@ -1,6 +1,6 @@
 {
     "name": "rushing/php-package-topology",
-    "description": "A declarative package-topology substrate for composer monorepos, riding rushing/php-graphine: one TopologyContract spanning two axes — the composer-require graph (direct edges, reachability, layering, cycles) and the source-import boundary (AST namespace guard) — plus a testing kit so a repo declares its architecture instead of hand-rolling fitness tests.",
+    "description": "A declarative package-topology substrate for composer monorepos, riding rushing/php-graphine: one TopologyContract spanning two axes \u2014 the composer-require graph (direct edges, reachability, layering, cycles) and the source-import boundary (AST namespace guard) \u2014 plus a testing kit so a repo declares its architecture instead of hand-rolling fitness tests.",
     "keywords": [
         "laravel",
         "topology",
@@ -31,7 +31,7 @@
     },
     "suggest": {
         "phpunit/phpunit": "The testing kit (AssertsPackageTopology / PackageTopologyConformance) needs a PHPUnit-providing host.",
-        "nikic/php-parser": "BSD-3 — the AST scanner behind graphine's SeamGuard, used by the source-import axis (sourceNeverReferences)."
+        "nikic/php-parser": "BSD-3 \u2014 the AST scanner behind graphine's SeamGuard, used by the source-import axis (sourceNeverReferences)."
     },
     "autoload": {
         "psr-4": {
@@ -44,6 +44,13 @@
         }
     },
     "repositories": [
+        {
+            "type": "path",
+            "url": "../php-graphine",
+            "options": {
+                "symlink": true
+            }
+        },
         {
             "type": "git",
             "url": "https://github.com/stephenr85/php-graphine.git"
